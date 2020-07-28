@@ -22,14 +22,15 @@ namespace pocoGenerator
                 Directory.CreateDirectory(_path);
 
                 var _nameSpace = configuration.GetSection("namespace")?.Value;
+                var _dataModel = configuration.GetSection("datamodelname")?.Value;
                 using (var connection = new SqlConnection(configuration.GetSection("connectionString").Value))
                 {
                     connection.Open();
 
                     Utils.OutpMessage("Creating classes...");
 
-                    Utils.SqlObjectsProcess(connection, _nameSpace, _path, args, true);
-                    Utils.SqlObjectsProcess(connection, _nameSpace, _path, args, false);
+                    Utils.SqlObjectsProcess(connection, _nameSpace, _dataModel, _path, args, true);
+                    Utils.SqlObjectsProcess(connection, _nameSpace, _dataModel, _path, args, false);
 
                     Utils.OutpMessage("Operation completed");
                 }

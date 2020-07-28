@@ -101,7 +101,7 @@ namespace pocoGenerator
         /// <param name="connection"></param>
         /// <param name="_path"></param>
         /// <param name="arguments"></param>
-        public static void SqlObjectsProcess(SqlConnection connection, string _nameSpace, string _path, string[] arguments, bool _areTables = true)
+        public static void SqlObjectsProcess(SqlConnection connection, string _nameSpace, string _dataModelName, string _path, string[] arguments, bool _areTables = true)
         {
             string _sqlCmd;
             if (_areTables)
@@ -129,12 +129,45 @@ namespace pocoGenerator
             var _dt = new DataTable();
             _da.Fill(_dt);
 
+            var classText = new StringBuilder();
+            if (_areTables)
+            {
+                classText = new StringBuilder("using System;\r\n")
+                            .AppendLine("using System.Xml;")
+                            .AppendLine("using System.Linq;")
+                            .AppendLine("using System.Data.Entity;")
+                            .AppendLine("using System.ComponentModel.DataAnnotations;")
+                            .AppendLine("namespace " + _nameSpace)
+                            .AppendLine("{")
+                            .Append("\tpublic partial class ")
+                            .Append(_dataModelName)
+                            .AppendLine(": DbContext")
+                            .AppendLine("\t{");
+            }
+
             foreach (DataRow table in _dt.Rows)
             {
                 var _t = table.Field<string>(0);
                 OutpMessage(_t);
 
                 CreatePocoEntity(connection, _t, _path, _nameSpace, _areTables);
+
+                if (_areTables)
+                {
+                    classText.Append("\t\tpublic virtual DbSet<")
+                         .Append(_t)
+                         .Append("> ")
+                         .Append(_t)
+                         .AppendLine(" { get; set; }");
+                }
+            }
+
+            if (_areTables)
+            {
+                classText.AppendLine("\t}")
+                         .AppendLine("}");
+
+                File.WriteAllText(Path.Combine(_path, "pocoDataModel.cs"), classText.ToString());
             }
         }
 
@@ -153,7 +186,7 @@ namespace pocoGenerator
                             .AppendLine("using System.ComponentModel.DataAnnotations;")
                             .AppendLine("namespace " + _nameSpace)
                             .AppendLine("{")
-                            .AppendLine("\tpublic class " + _t)
+                            .AppendLine("\tpublic partial class " + _t)
                             .AppendLine("\t{");
 
             string _sqlCmd;
@@ -218,18 +251,18 @@ namespace pocoGenerator
                 {
                     if (r.Field<bool>(4))
                     {
-                        classText.AppendLine("\t\t//[Key]")
-                                 .AppendLine("\t\t//[Column(Order=" + (r.Field<int>(5) - 1).ToString() + ")]");
+                        classText.AppendLine("\t\t[Key]")
+                                 .AppendLine("\t\t[Column(Order=" + (r.Field<int>(5) - 1).ToString() + ")]");
                     }
 
                     if (r.Field<bool>(6))
                     {
-                        classText.AppendLine("\t\t//[DatabaseGenerated(DatabaseGeneratedOption.Identity)]");
+                        classText.AppendLine("\t\t[DatabaseGenerated(DatabaseGeneratedOption.Identity)]");
                     }
 
                     if (r.Field<bool>(7))
                     {
-                        classText.AppendLine("\t\t//[DatabaseGenerated(DatabaseGeneratedOption.Computed)]");
+                        classText.AppendLine("\t\t[DatabaseGenerated(DatabaseGeneratedOption.Computed)]");
                     }
 
                     classText.Append("\t\tpublic ")
@@ -237,7 +270,7 @@ namespace pocoGenerator
                              .Append(r.Field<bool>(3) ? "?" : "")
                              .Append(" ")
                              .Append(_name)
-                             .AppendLine(" {get; set;}");
+                             .AppendLine(" { get; set; }");
                 }
                 else
                 {
@@ -257,7 +290,7 @@ namespace pocoGenerator
             }
 
             classText.AppendLine("\t}")
-                        .AppendLine("}");
+                     .AppendLine("}");
 
             File.WriteAllText(Path.Combine(_path, _t + ".cs"), classText.ToString());
         }
