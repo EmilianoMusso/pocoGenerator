@@ -3,7 +3,6 @@ using System.Data;
 using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
-using System.Text;
 
 namespace pocoGenerator
 {
@@ -106,68 +105,51 @@ namespace pocoGenerator
             string _sqlCmd;
             if (_areTables)
             {
-                _sqlCmd = @"SELECT name 
-                            FROM (
-                                SELECT name FROM sys.tables
-                                UNION ALL
-                                SELECT name FROM sys.views
-                            ) t";
+                _sqlCmd = Constants.QUERY_FOR_TABLES;
             }
             else
             {
-                _sqlCmd = @"SELECT name 
-                            FROM (
-                                SELECT name FROM sys.procedures
-                                UNION ALL
-                                SELECT name FROM sys.objects WHERE type IN ('FN', 'IF', 'TF')
-                            ) t";
+                _sqlCmd = Constants.QUERY_FOR_PROCEDURES;
             }
             if (arguments.Any() && !string.IsNullOrEmpty(arguments[0])) _sqlCmd += " WHERE name = QUOTENAME('" + arguments[0] + "')";
             _sqlCmd += " ORDER BY t.name";
 
-            var _da = new SqlDataAdapter(_sqlCmd, connection);
-            var _dt = new DataTable();
-            _da.Fill(_dt);
-
-            var classText = new StringBuilder();
-            if (_areTables)
+            using (var _cmd = new SqlCommand(_sqlCmd, connection))
             {
-                classText = new StringBuilder("using System;\r\n")
-                            .AppendLine("using System.Xml;")
-                            .AppendLine("using System.Linq;")
-                            .AppendLine("using System.Data.Entity;")
-                            .AppendLine("using System.ComponentModel.DataAnnotations;")
-                            .AppendLine("namespace " + _nameSpace)
-                            .AppendLine("{")
-                            .Append("\tpublic partial class ")
-                            .Append(_dataModelName)
-                            .AppendLine(": DbContext")
-                            .AppendLine("\t{");
-            }
+                _cmd.CommandTimeout = 120000;
 
-            foreach (DataRow table in _dt.Rows)
-            {
-                var _t = table.Field<string>(0);
-                OutpMessage(_t);
-
-                CreatePocoEntity(connection, _t, _path, _nameSpace, _areTables);
-
-                if (_areTables)
+                using (var _da = new SqlDataAdapter(_cmd))
                 {
-                    classText.Append("\t\tpublic virtual DbSet<")
-                         .Append(_t)
-                         .Append("> ")
-                         .Append(_t)
-                         .AppendLine(" { get; set; }");
+                    var _dt = new DataTable();
+                    _da.Fill(_dt);
+
+                    var classText = new Classer();
+                    if (_areTables)
+                    {
+                        classText = new Classer(_nameSpace, _dataModelName, "DbContext");
+                    }
+
+                    foreach (DataRow table in _dt.Rows)
+                    {
+                        var _t = table.Field<string>(0);
+                        OutpMessage(_t);
+
+                        CreatePocoEntity(connection, _t, _path, _nameSpace, _areTables);
+
+                        if (_areTables)
+                        {
+                            classText.AddDbSet(_t);
+                        }
+                    }
+
+                    if (_areTables)
+                    {
+                        classText.Close();
+                        File.WriteAllText(Path.Combine(_path, _dataModelName + ".cs"), classText.ToString());
+                    }
+
+                    classText.Dispose();
                 }
-            }
-
-            if (_areTables)
-            {
-                classText.AppendLine("\t}")
-                         .AppendLine("}");
-
-                File.WriteAllText(Path.Combine(_path, "pocoDataModel.cs"), classText.ToString());
             }
         }
 
@@ -180,119 +162,73 @@ namespace pocoGenerator
         /// <param name="_nameSpace"></param>
         private static void CreatePocoEntity(SqlConnection connection, string _t, string _path, string _nameSpace, bool _isTable = true)
         {
-            var classText = new StringBuilder("using System;\r\n")
-                            .AppendLine("using System.Xml;")
-                            .AppendLine("using System.Linq;")
-                            .AppendLine("using System.ComponentModel.DataAnnotations;")
-                            .AppendLine("namespace " + _nameSpace)
-                            .AppendLine("{")
-                            .AppendLine("\tpublic partial class " + _t)
-                            .AppendLine("\t{");
-
-            string _sqlCmd;
-
-            if (_isTable)
+            using (var classText = new Classer(_nameSpace, _t))
             {
-                _sqlCmd = $@"SELECT TAB.name, 
-                                    TYP.name,
-	                                COL.name,
-                                    COL.is_nullable,
-                                    CAST(CASE WHEN IDC.column_id IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS is_primary,
-                                    ISNULL(IDC.index_column_id, 1) AS index_column_id,
-                                    COL.is_identity,
-                                    COL.is_computed
-                            FROM (
-                                    SELECT object_id, name FROM sys.tables 
-                                    UNION ALL
-                                    SELECT object_id, name FROM sys.views
-                            ) TAB INNER JOIN sys.columns COL ON TAB.object_id = COL.object_id
-                                  INNER JOIN sys.types TYP ON TYP.system_type_id = COL.system_type_id
-	                              LEFT JOIN sys.indexes IDX ON IDX.object_id = TAB.object_id AND IDX.is_primary_key = 1
-                                  LEFT JOIN sys.index_columns IDC ON IDC.object_id = COL.object_id AND IDC.column_id = COL.column_id AND IDC.index_id = IDX.index_id
-                            WHERE TAB.name = @objName";
-            }
-            else
-            {
-                classText.Append("\t\tpublic void " + _t + "(");
 
-                _sqlCmd = $@"SELECT OBJ.name, 
-                                    TYP.name,
-	                                PAR.name,
-                                    PAR.is_nullable,
-                                    CAST(0 AS BIT) AS is_primary,
-                                    0 AS index_column_id,
-                                    CAST(0 AS BIT) AS is_identity,
-                                    CAST(0 AS BIT) AS is_computed
-                            FROM (
-	                            SELECT object_id, name FROM sys.procedures
-	                            UNION ALL
-	                            SELECT object_id, name FROM sys.objects WHERE type IN ('FN', 'IF', 'TF')
-                            )
-                            OBJ INNER JOIN sys.parameters PAR ON OBJ.object_id = PAR.object_id
-                                INNER JOIN sys.types TYP ON TYP.system_type_id = PAR.system_type_id
-                            WHERE OBJ.name = @objName
-                            ORDER BY OBJ.name, PAR.parameter_id";
-            }
-
-            var _cmd = new SqlCommand(_sqlCmd, connection);
-            _cmd.Parameters.Add(new SqlParameter("objName", _t));
-
-            var _da = new SqlDataAdapter(_cmd);
-            var _dt = new DataTable();
-            _da.Fill(_dt);
-
-            var _numRows = 1;
-            foreach (DataRow r in _dt.Rows)
-            {
-                var _type = GetNETType(r.Field<string>(1));
-                var _name = r.Field<string>(2);
+                string _sqlCmd;
 
                 if (_isTable)
                 {
-                    if (r.Field<bool>(4))
-                    {
-                        classText.AppendLine("\t\t[Key]")
-                                 .AppendLine("\t\t[Column(Order=" + (r.Field<int>(5) - 1).ToString() + ")]");
-                    }
-
-                    if (r.Field<bool>(6))
-                    {
-                        classText.AppendLine("\t\t[DatabaseGenerated(DatabaseGeneratedOption.Identity)]");
-                    }
-
-                    if (r.Field<bool>(7))
-                    {
-                        classText.AppendLine("\t\t[DatabaseGenerated(DatabaseGeneratedOption.Computed)]");
-                    }
-
-                    classText.Append("\t\tpublic ")
-                             .Append(_type)
-                             .Append(r.Field<bool>(3) ? "?" : "")
-                             .Append(" ")
-                             .Append(_name)
-                             .AppendLine(" { get; set; }");
+                    _sqlCmd = Constants.QUERY_FOR_TABLE_FIELDS;
                 }
                 else
                 {
-                    classText.Append(_type)
-                             .Append(" ")
-                             .Append(_name.Replace("@", ""))
-                             .Append(_numRows++ < _dt.Rows.Count ? ", " : "");
+                    classText.Append("\t\tpublic void " + _t + "(");
+
+                    _sqlCmd = Constants.QUERY_FOR_PROCEDURE_FIELDS;
                 }
+
+                var _cmd = new SqlCommand(_sqlCmd, connection);
+                _cmd.Parameters.Add(new SqlParameter("objName", _t));
+
+                var _da = new SqlDataAdapter(_cmd);
+                var _dt = new DataTable();
+                _da.Fill(_dt);
+
+                var _numRows = 1;
+                foreach (DataRow r in _dt.Rows)
+                {
+                    var _type = GetNETType(r.Field<string>(1));
+                    var _name = r.Field<string>(2);
+
+                    if (_isTable)
+                    {
+                        if (r.Field<bool>(4))
+                        {
+                            classText.AddDataAnnotation(Constants.EF_KEY_DA);
+                            classText.AddDataAnnotation(Constants.EF_COLUMN_ORDER(r.Field<int>(5) - 1));
+                        }
+
+                        if (r.Field<bool>(6))
+                        {
+                            classText.AddDataAnnotation(Constants.EF_IDENTITY_DA);
+                        }
+
+                        if (r.Field<bool>(7))
+                        {
+                            classText.AddDataAnnotation(Constants.EF_COMPUTED_DA);
+                        }
+
+                        classText.AddPublicProperty(_type + (r.Field<bool>(3) ? "?" : ""), _name);
+                    }
+                    else
+                    {
+                        classText.AddArgument(_type, _name, _numRows++ < _dt.Rows.Count);
+                    }
+                }
+
+                if (!_isTable)
+                {
+                    classText.AppendLine(")")
+                                .AppendLine("\t\t{")
+                                .AppendLine("\t\t\t// TO DO: Implement function calling")
+                                .AppendLine("\t\t}");
+                }
+
+                classText.Close();
+
+                if (_isTable) File.WriteAllText(Path.Combine(_path, _t + ".cs"), classText.ToString());
             }
-
-            if (!_isTable)
-            {
-                classText.AppendLine(")")
-                            .AppendLine("\t\t{")
-                            .AppendLine("\t\t\t// TO DO: Implement function calling")
-                            .AppendLine("\t\t}");
-            }
-
-            classText.AppendLine("\t}")
-                     .AppendLine("}");
-
-            File.WriteAllText(Path.Combine(_path, _t + ".cs"), classText.ToString());
         }
     }
 }
