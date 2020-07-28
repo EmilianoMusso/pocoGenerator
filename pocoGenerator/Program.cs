@@ -4,6 +4,7 @@ using System.Data;
 using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace pocoGenerator
 {
@@ -39,8 +40,6 @@ namespace pocoGenerator
                     var _dt = new DataTable();
                     _da.Fill(_dt);
 
-                    var startTime = new TimeSpan();
-
                     OutpMessage("Creating classes...");
                     foreach (DataRow table in _dt.Rows)
                     {
@@ -49,13 +48,13 @@ namespace pocoGenerator
 
                         using (var sw = new StreamWriter(Path.Combine(_path, _t + ".cs")))
                         {
-                            var classText = "using System;\r\n" +
-                                            "using System.Xml\r\n" +
-                                            "using System.Linq;\r\n" +
-                                            "namespace " + configuration.GetSection("namespace") + "\r\n" +
-                                            "{\r\n" +
-                                            "\tpublic class " + _t + "\r\n" +
-                                            "\t{\r\n";
+                            var classText = new StringBuilder("using System;\r\n")
+                                            .AppendLine("using System.Xml;")
+                                            .AppendLine("using System.Linq;")
+                                            .AppendLine("namespace " + configuration.GetSection("namespace"))
+                                            .AppendLine("{")
+                                            .AppendLine("\tpublic class " + _t)
+                                            .AppendLine("\t{");
 
                             _sqlCmd = $@"SELECT TAB.name, 
                                                 TYP.name,
@@ -76,22 +75,24 @@ namespace pocoGenerator
                                 {
                                     while (dr.Read())
                                     {
-                                        classText += "\t\tpublic " 
+                                        classText.AppendLine("\t\tpublic " 
                                             + GetNETType(dr.GetString(1)) 
                                             + (dr.GetBoolean(3) ? "?" : "" )
                                             + " " 
                                             + dr.GetString(2) 
-                                            + " {get; set;}\r\n";
+                                            + " {get; set;}");
                                     }
                                 }
                             }
 
-                            classText += "\t}\r\n}";
-                            sw.WriteLine(classText);
+                            classText.AppendLine("\t}")
+                                      .AppendLine("}");
+
+                            sw.WriteLine(classText.ToString());
                         }
 
                     }
-                    OutpMessage("Operation completed in " + DateTime.Now.Subtract(startTime).Second.ToString() + " s.");
+                    OutpMessage("Operation completed");
                 }
             }
             catch (Exception ex)
