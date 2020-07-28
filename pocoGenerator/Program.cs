@@ -34,11 +34,13 @@ namespace pocoGenerator
                                         SELECT name FROM sys.views
                                    ) t
                                    ORDER BY t.name";
-                    if (args.Any() && !string.IsNullOrEmpty(args[0])) _sqlCmd += " WHERE name = '" + args[0] + "'";
+                    if (args.Any() && !string.IsNullOrEmpty(args[0])) _sqlCmd += " WHERE name = QUOTENAME('" + args[0] + "')";
 
                     var _da = new SqlDataAdapter(_sqlCmd, connection);
                     var _dt = new DataTable();
                     _da.Fill(_dt);
+
+                    var _nameSpace = configuration.GetSection("namespace")?.Value;
 
                     OutpMessage("Creating classes...");
                     foreach (DataRow table in _dt.Rows)
@@ -51,7 +53,7 @@ namespace pocoGenerator
                             var classText = new StringBuilder("using System;\r\n")
                                             .AppendLine("using System.Xml;")
                                             .AppendLine("using System.Linq;")
-                                            .AppendLine("namespace " + configuration.GetSection("namespace"))
+                                            .AppendLine("namespace " + _nameSpace)
                                             .AppendLine("{")
                                             .AppendLine("\tpublic class " + _t)
                                             .AppendLine("\t{");
@@ -66,8 +68,9 @@ namespace pocoGenerator
                                               SELECT object_id, name FROM sys.views
                                         ) TAB INNER JOIN sys.columns COL ON TAB.object_id = COL.object_id
                                               INNER JOIN sys.types TYP ON TYP.system_type_id = COL.system_type_id
-                                        WHERE TAB.name = '{_t}'";
+                                        WHERE TAB.name = @tableName";
                             var _cmd = new SqlCommand(_sqlCmd, connection);
+                            _cmd.Parameters.Add(new SqlParameter("tableName", _t));
 
                             using (var dr = _cmd.ExecuteReader())
                             {
