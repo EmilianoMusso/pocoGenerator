@@ -1,6 +1,6 @@
 # POCO Generator
 
-POCO Generator is a .NET Core written command-line tool, written in C#, to quickly create POCO objects from SQL Server tables and views.
+POCO Generator is a .NET Core command-line tool, written in C#, to quickly create POCO objects from SQL Server tables and views.
 
 Prior to running the program, connection string and namespace must be set in **appsettings.json** file
 ```sh
